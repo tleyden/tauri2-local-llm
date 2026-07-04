@@ -27,7 +27,7 @@ excluding model load. Current test audio is
 
 | Approach | Model | Hardware | Generated tokens | Elapsed seconds | Tokens/sec |
 | --- | --- | --- | ---: | ---: | ---: |
-| [llama.cpp native integration via FFI (llama-cpp-2)](llama-cpp-ffi/README.md) | Gemma 4 12B IT Q5_K_S | Apple M2 Max, Metal | 96 | 5.82 | 16.48 |
+| [llama.cpp native integration via FFI (llama-cpp-2)](llama-cpp-ffi/README.md) | Gemma 4 12B IT Q5_K_S | M2 MacBook Pro Max, 64GB unified memory, Metal | 96 | 5.82 | 16.48 |
 
 ## Design notes - best integration strategy?
 
