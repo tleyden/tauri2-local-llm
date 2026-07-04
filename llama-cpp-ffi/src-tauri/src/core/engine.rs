@@ -3,6 +3,7 @@ use std::io;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
 use llama_cpp_2::context::params::LlamaContextParams;
 use llama_cpp_2::llama_backend::LlamaBackend;
@@ -27,6 +28,19 @@ static BACKEND: OnceLock<LlamaBackend> = OnceLock::new();
 pub struct ModelPaths {
     pub model: PathBuf,
     pub mmproj: PathBuf,
+}
+
+#[derive(Debug, Clone)]
+pub struct PromptResponse {
+    pub text: String,
+    pub generated_tokens: usize,
+    pub elapsed: Duration,
+}
+
+impl PromptResponse {
+    pub fn tokens_per_second(&self) -> f64 {
+        self.generated_tokens as f64 / self.elapsed.as_secs_f64()
+    }
 }
 
 #[derive(Debug)]
@@ -83,12 +97,21 @@ impl Engine {
         let mut batch = LlamaBatch::get_one(&tokens)?;
         ctx.decode(&mut batch)?;
 
-        generate_response(&self.model, &mut ctx, tokens.len(), MAX_GENERATED_TOKENS)
+        Ok(generate_response(&self.model, &mut ctx, tokens.len(), MAX_GENERATED_TOKENS)?.text)
     }
 
     pub fn prompt_audio(&mut self, wav_path: impl AsRef<Path>, prompt: &str) -> Result<String> {
+        Ok(self.prompt_audio_with_stats(wav_path, prompt)?.text)
+    }
+
+    pub fn prompt_audio_with_stats(
+        &mut self,
+        wav_path: impl AsRef<Path>,
+        prompt: &str,
+    ) -> Result<PromptResponse> {
         let wav_path = wav_path.as_ref();
         ensure_file(wav_path, "audio")?;
+        let started_at = Instant::now();
 
         let audio = MtmdBitmap::from_file(&self.mtmd, path_to_str(wav_path)?, false)?;
         let content = format!("{} {}", mtmd_default_marker(), prompt);
@@ -112,12 +135,14 @@ impl Engine {
             true,
         )?;
 
-        generate_response(
+        let mut response = generate_response(
             &self.model,
             &mut ctx,
             usize::try_from(n_past).unwrap_or(0),
             MAX_GENERATED_TOKENS,
-        )
+        )?;
+        response.elapsed = started_at.elapsed();
+        Ok(response)
     }
 
     fn chat_prompt(&self, user_content: &str) -> Result<String> {
@@ -178,9 +203,10 @@ fn generate_response(
     ctx: &mut llama_cpp_2::context::LlamaContext<'_>,
     mut n_past: usize,
     max_tokens: usize,
-) -> Result<String> {
+) -> Result<PromptResponse> {
     let mut sampler = LlamaSampler::greedy();
     let mut output = Vec::new();
+    let mut generated_tokens = 0;
 
     for _ in 0..max_tokens {
         let token = sampler.sample(ctx, -1);
@@ -189,6 +215,7 @@ fn generate_response(
         }
 
         sampler.accept(token);
+        generated_tokens += 1;
         output.extend(model.token_to_piece_bytes(token, 32, false, None)?);
 
         let mut batch = LlamaBatch::new(1, 1);
@@ -197,7 +224,11 @@ fn generate_response(
         n_past += 1;
     }
 
-    Ok(String::from_utf8_lossy(&output).into_owned())
+    Ok(PromptResponse {
+        text: String::from_utf8_lossy(&output).into_owned(),
+        generated_tokens,
+        elapsed: Duration::ZERO,
+    })
 }
 
 fn backend() -> Result<&'static LlamaBackend> {

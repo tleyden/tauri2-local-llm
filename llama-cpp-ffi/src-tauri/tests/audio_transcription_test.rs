@@ -19,10 +19,29 @@ fn gemma_4_native_audio_returns_expected_process_management_answer(
     );
 
     let audio_path = Path::new("../testdata/test_tts.wav");
-    let response = engine.prompt_audio(audio_path, "Transcribe this audio exactly.")?;
+    let response = engine.prompt_audio_with_stats(audio_path, "Transcribe this audio exactly.")?;
+
+    assert!(
+        response.generated_tokens > 0,
+        "expected audio prompt to generate at least one token"
+    );
+    assert!(
+        response.elapsed.as_secs_f64() > 0.0,
+        "expected audio prompt elapsed time to be positive"
+    );
+    assert!(
+        response.tokens_per_second() > 0.0,
+        "expected audio prompt tokens/sec to be positive"
+    );
+    println!(
+        "audio benchmark: generated_tokens={} elapsed_seconds={:.2} tokens_per_second={:.2}",
+        response.generated_tokens,
+        response.elapsed.as_secs_f64(),
+        response.tokens_per_second()
+    );
 
     assert_major_phrases(
-        &response,
+        &response.text,
         &[
             "classic scenario",
             "major issue",

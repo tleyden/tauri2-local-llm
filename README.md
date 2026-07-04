@@ -15,8 +15,19 @@ Right now I mainly need it on macOS, so there is a heavy bias towards that platf
 
 ## Supported approaches
 
-1. llama.cpp native integration via FFI (llama-cpp-2)
+Only one for now, which has been working well so far. In the future I plan to compare other approaches.
 
+1. [llama.cpp native integration via FFI (llama-cpp-2)](llama-cpp-ffi/README.md)
+
+## Audio benchmark
+
+Metric: generated model tokens divided by end-to-end audio prompt wall time,
+excluding model load. Current test audio is
+`llama-cpp-ffi/testdata/test_tts.wav`.
+
+| Approach | Model | Hardware | Generated tokens | Elapsed seconds | Tokens/sec |
+| --- | --- | --- | ---: | ---: | ---: |
+| [llama.cpp native integration via FFI (llama-cpp-2)](llama-cpp-ffi/README.md) | Gemma 4 12B IT Q5_K_S | Apple M2 Max, Metal | 96 | 5.82 | 16.48 |
 
 ## Design notes - best integration strategy?
 
