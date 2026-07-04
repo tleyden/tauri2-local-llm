@@ -21,6 +21,34 @@ cargo build --features metal
 cargo test --features metal
 ```
 
+# Benchmarks
+
+The Rust integration tests print simple local inference timings. Run them with
+`--show-output` so Cargo keeps the benchmark line visible after a passing test.
+
+From `src-tauri/`, run the audio transcription benchmark:
+
+```
+cargo test --features metal --test audio_transcription_test \
+  gemma_4_native_audio_returns_expected_process_management_answer -- --show-output
+```
+
+The output includes a line like:
+
+```
+audio benchmark: input_tokens=503 input_positions=503 generated_tokens=96 prefill_seconds=1.99 decode_seconds=4.63 decode_tokens_per_second=20.74 total_seconds=6.62 total_tokens_per_second=14.51
+```
+
+For a text-only sanity benchmark:
+
+```
+cargo test --features metal --test hello_world_test \
+  gemma_4_model_loads_and_answers_text_prompt -- --show-output
+```
+
+Compare `decode_tokens_per_second` for decode-only speed and
+`total_tokens_per_second` for the full prompt path.
+
 # Local models
 
 This prototype expects local GGUF model files outside git. Keep them mounted

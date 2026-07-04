@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
-use llama_cpp_2::context::params::LlamaContextParams;
+use llama_cpp_2::context::params::{KvCacheType, LlamaContextParams};
 use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::llama_batch::LlamaBatch;
 use llama_cpp_2::model::params::LlamaModelParams;
@@ -187,6 +187,8 @@ impl Engine {
     fn context_params() -> LlamaContextParams {
         LlamaContextParams::default()
             .with_flash_attention_policy(LLAMA_FLASH_ATTN_TYPE_ENABLED)
+            .with_type_k(KvCacheType::Q8_0)
+            .with_type_v(KvCacheType::Q8_0)
             .with_n_ctx(NonZeroU32::new(CONTEXT_SIZE))
             .with_n_batch(BATCH_SIZE)
             .with_n_ubatch(BATCH_SIZE)
@@ -365,5 +367,13 @@ mod tests {
             params.flash_attention_policy(),
             LLAMA_FLASH_ATTN_TYPE_ENABLED
         );
+    }
+
+    #[test]
+    fn context_params_quantize_kv_cache() {
+        let params = Engine::context_params();
+
+        assert_eq!(params.type_k(), KvCacheType::Q8_0);
+        assert_eq!(params.type_v(), KvCacheType::Q8_0);
     }
 }
