@@ -24,7 +24,7 @@ Right now I mainly need it on macOS, so there is a heavy bias towards that platf
 
 #### Risks
 
-1. Does it support gemma4?
+1. Does it support gemma4?  Open Issue: https://github.com/crabnebula-dev/tauri-plugin-llm/issues/22
 
 ### Option 2: llama.cpp sidecar process
 
@@ -36,7 +36,7 @@ Right now I mainly need it on macOS, so there is a heavy bias towards that platf
 
 #### Strengths
 
-1. Gemma4 + native audio support: https://github.com/utilityai/llama-cpp-rs/pull/1000
+1. Gemma4 + native audio support.  Issue that shows it's supported: https://github.com/utilityai/llama-cpp-rs/pull/1000
 
 #### Risks
 
