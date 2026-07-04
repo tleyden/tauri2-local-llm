@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Local model mounts
+.models/
+models/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
