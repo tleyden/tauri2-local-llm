@@ -22,6 +22,7 @@ const MODEL_DIR_NAME: &str = "gemma-4-12b-it-Q5_K_S";
 const MAX_GENERATED_TOKENS: usize = 96;
 const CONTEXT_SIZE: u32 = 8192;
 const BATCH_SIZE: u32 = 1024;
+const KV_CACHE_ENV: &str = "LLAMA_CPP_FFI_KV_CACHE";
 
 static BACKEND: OnceLock<LlamaBackend> = OnceLock::new();
 
@@ -179,21 +180,55 @@ impl Engine {
     }
 
     fn new_context(&self) -> Result<llama_cpp_2::context::LlamaContext<'_>> {
-        let params = Self::context_params();
+        let params = Self::context_params()?;
 
         Ok(self.model.new_context(self.backend, params)?)
     }
 
-    fn context_params() -> LlamaContextParams {
+    fn context_params() -> Result<LlamaContextParams> {
+        Ok(Self::context_params_with_kv_cache_type(
+            Self::kv_cache_type_from_env()?,
+        ))
+    }
+
+    fn context_params_with_kv_cache_type(kv_cache_type: KvCacheType) -> LlamaContextParams {
         LlamaContextParams::default()
             .with_flash_attention_policy(LLAMA_FLASH_ATTN_TYPE_ENABLED)
-            .with_type_k(KvCacheType::Q8_0)
-            .with_type_v(KvCacheType::Q8_0)
+            .with_type_k(kv_cache_type)
+            .with_type_v(kv_cache_type)
             .with_n_ctx(NonZeroU32::new(CONTEXT_SIZE))
             .with_n_batch(BATCH_SIZE)
             .with_n_ubatch(BATCH_SIZE)
             .with_n_threads(default_thread_count())
             .with_n_threads_batch(default_thread_count())
+    }
+
+    fn kv_cache_type_from_env() -> Result<KvCacheType> {
+        match std::env::var(KV_CACHE_ENV) {
+            Ok(value) => Self::kv_cache_type_from_env_value(Some(&value)),
+            Err(std::env::VarError::NotPresent) => Self::kv_cache_type_from_env_value(None),
+            Err(err) => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("failed to read {KV_CACHE_ENV}: {err}"),
+            )
+            .into()),
+        }
+    }
+
+    fn kv_cache_type_from_env_value(value: Option<&str>) -> Result<KvCacheType> {
+        let Some(value) = value else {
+            return Ok(KvCacheType::Q8_0);
+        };
+
+        match value.trim().to_ascii_lowercase().as_str() {
+            "f16" => Ok(KvCacheType::F16),
+            "q8_0" => Ok(KvCacheType::Q8_0),
+            _ => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("invalid {KV_CACHE_ENV}={value:?}; expected \"f16\" or \"q8_0\""),
+            )
+            .into()),
+        }
     }
 }
 
@@ -361,7 +396,7 @@ mod tests {
 
     #[test]
     fn context_params_enable_flash_attention() {
-        let params = Engine::context_params();
+        let params = Engine::context_params_with_kv_cache_type(KvCacheType::Q8_0);
 
         assert_eq!(
             params.flash_attention_policy(),
@@ -371,9 +406,51 @@ mod tests {
 
     #[test]
     fn context_params_quantize_kv_cache() {
-        let params = Engine::context_params();
+        let params = Engine::context_params_with_kv_cache_type(KvCacheType::Q8_0);
 
         assert_eq!(params.type_k(), KvCacheType::Q8_0);
         assert_eq!(params.type_v(), KvCacheType::Q8_0);
+    }
+
+    #[test]
+    fn context_params_can_use_f16_kv_cache() {
+        let params = Engine::context_params_with_kv_cache_type(KvCacheType::F16);
+
+        assert_eq!(params.type_k(), KvCacheType::F16);
+        assert_eq!(params.type_v(), KvCacheType::F16);
+    }
+
+    #[test]
+    fn kv_cache_type_defaults_to_q8_0() {
+        assert_eq!(
+            Engine::kv_cache_type_from_env_value(None).unwrap(),
+            KvCacheType::Q8_0
+        );
+    }
+
+    #[test]
+    fn kv_cache_type_accepts_f16_env_value() {
+        assert_eq!(
+            Engine::kv_cache_type_from_env_value(Some("f16")).unwrap(),
+            KvCacheType::F16
+        );
+    }
+
+    #[test]
+    fn kv_cache_type_accepts_q8_0_env_value() {
+        assert_eq!(
+            Engine::kv_cache_type_from_env_value(Some("q8_0")).unwrap(),
+            KvCacheType::Q8_0
+        );
+    }
+
+    #[test]
+    fn kv_cache_type_rejects_unknown_env_value() {
+        let err = Engine::kv_cache_type_from_env_value(Some("q4_k")).unwrap_err();
+        let message = err.to_string();
+
+        assert!(message.contains("LLAMA_CPP_FFI_KV_CACHE"));
+        assert!(message.contains("f16"));
+        assert!(message.contains("q8_0"));
     }
 }

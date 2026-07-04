@@ -33,6 +33,17 @@ cargo test --features metal --test audio_transcription_test \
   gemma_4_native_audio_returns_expected_process_management_answer -- --show-output
 ```
 
+By default, the benchmark uses Q8_0 for the K/V cache. To compare it with the
+old default F16 K/V cache, set `LLAMA_CPP_FFI_KV_CACHE`:
+
+```
+LLAMA_CPP_FFI_KV_CACHE=q8_0 cargo test --features metal --test audio_transcription_test \
+  gemma_4_native_audio_returns_expected_process_management_answer -- --show-output
+
+LLAMA_CPP_FFI_KV_CACHE=f16 cargo test --features metal --test audio_transcription_test \
+  gemma_4_native_audio_returns_expected_process_management_answer -- --show-output
+```
+
 The output includes a line like:
 
 ```
