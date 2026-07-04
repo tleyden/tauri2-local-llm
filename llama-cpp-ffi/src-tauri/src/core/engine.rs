@@ -14,6 +14,7 @@ use llama_cpp_2::mtmd::{
     mtmd_default_marker, MtmdBitmap, MtmdContext, MtmdContextParams, MtmdInputText,
 };
 use llama_cpp_2::sampling::LlamaSampler;
+use llama_cpp_sys_2::LLAMA_FLASH_ATTN_TYPE_ENABLED;
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -178,14 +179,19 @@ impl Engine {
     }
 
     fn new_context(&self) -> Result<llama_cpp_2::context::LlamaContext<'_>> {
-        let params = LlamaContextParams::default()
+        let params = Self::context_params();
+
+        Ok(self.model.new_context(self.backend, params)?)
+    }
+
+    fn context_params() -> LlamaContextParams {
+        LlamaContextParams::default()
+            .with_flash_attention_policy(LLAMA_FLASH_ATTN_TYPE_ENABLED)
             .with_n_ctx(NonZeroU32::new(CONTEXT_SIZE))
             .with_n_batch(BATCH_SIZE)
             .with_n_ubatch(BATCH_SIZE)
             .with_n_threads(default_thread_count())
-            .with_n_threads_batch(default_thread_count());
-
-        Ok(self.model.new_context(self.backend, params)?)
+            .with_n_threads_batch(default_thread_count())
     }
 }
 
@@ -345,4 +351,19 @@ fn default_thread_count() -> i32 {
         .map(usize::from)
         .unwrap_or(4)
         .min(i32::MAX as usize) as i32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn context_params_enable_flash_attention() {
+        let params = Engine::context_params();
+
+        assert_eq!(
+            params.flash_attention_policy(),
+            LLAMA_FLASH_ATTN_TYPE_ENABLED
+        );
+    }
 }
