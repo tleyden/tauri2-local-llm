@@ -1,6 +1,6 @@
-This is a prototyping repo to compare the various ways to use local models like Gemma4 in a Tauri2 desktop app.
+This is a prototyping repo to compare the various ways to use local models like Gemma4 in a Tauri2 desktop app, since I am planning to integrate this into the language learning app I'm building: [Fluensy](https://fluensy.app)
 
-Right now I mainly need it on macOS, so there is a heavy bias towards that platform.
+Right now I mainly need it on macOS, so there is a heavy bias towards that platform.  But ideally I want this to work on all platforms.
 
 ## P0 Requirements
 
@@ -13,7 +13,12 @@ Right now I mainly need it on macOS, so there is a heavy bias towards that platf
 1. Other LLM models 
 2. Linux/Windows
 
-## Best integration strategy?
+## Supported approaches
+
+1. llama.cpp native integration via FFI (llama-cpp-2)
+
+
+## Design notes - best integration strategy?
 
 ### Option 1: crabnebula-dev/tauri-plugin-llm
 
