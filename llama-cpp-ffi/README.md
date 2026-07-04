@@ -2,7 +2,23 @@
 
 ```
 bun install
-bun run tauri dev
+bun run tauri:dev
+```
+
+On macOS this prototype always builds `llama-cpp-2` with Metal enabled. The
+`src-tauri` crate enables its `metal` and `mtmd` features by default, and the
+Tauri scripts pass `--features metal` explicitly:
+
+```
+bun run tauri:dev
+bun run tauri:build
+```
+
+For Rust-only validation from `src-tauri/`, use:
+
+```
+cargo build --features metal
+cargo test --features metal
 ```
 
 # Local models
