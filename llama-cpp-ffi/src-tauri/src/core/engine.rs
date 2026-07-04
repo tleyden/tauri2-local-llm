@@ -36,12 +36,18 @@ pub struct PromptResponse {
     pub input_tokens: usize,
     pub input_positions: i32,
     pub generated_tokens: usize,
+    pub prefill_elapsed: Duration,
+    pub decode_elapsed: Duration,
     pub elapsed: Duration,
 }
 
 impl PromptResponse {
     pub fn tokens_per_second(&self) -> f64 {
         self.generated_tokens as f64 / self.elapsed.as_secs_f64()
+    }
+
+    pub fn decode_tokens_per_second(&self) -> f64 {
+        self.generated_tokens as f64 / self.decode_elapsed.as_secs_f64()
     }
 }
 
@@ -93,13 +99,25 @@ impl Engine {
     }
 
     pub fn prompt_text(&mut self, prompt: &str) -> Result<String> {
+        Ok(self.prompt_text_with_stats(prompt)?.text)
+    }
+
+    pub fn prompt_text_with_stats(&mut self, prompt: &str) -> Result<PromptResponse> {
+        let started_at = Instant::now();
         let prompt = self.chat_prompt(prompt)?;
         let tokens = self.model.str_to_token(&prompt, AddBos::Always)?;
         let mut ctx = self.new_context()?;
         let mut batch = LlamaBatch::get_one(&tokens)?;
         ctx.decode(&mut batch)?;
+        let prefill_elapsed = started_at.elapsed();
 
-        Ok(generate_response(&self.model, &mut ctx, tokens.len(), MAX_GENERATED_TOKENS)?.text)
+        let mut response =
+            generate_response(&self.model, &mut ctx, tokens.len(), MAX_GENERATED_TOKENS)?;
+        response.input_tokens = tokens.len();
+        response.input_positions = i32::try_from(tokens.len())?;
+        response.prefill_elapsed = prefill_elapsed;
+        response.elapsed = started_at.elapsed();
+        Ok(response)
     }
 
     pub fn prompt_audio(&mut self, wav_path: impl AsRef<Path>, prompt: &str) -> Result<String> {
@@ -138,6 +156,7 @@ impl Engine {
             i32::try_from(BATCH_SIZE).expect("batch size fits in i32"),
             true,
         )?;
+        let prefill_elapsed = started_at.elapsed();
 
         let mut response = generate_response(
             &self.model,
@@ -147,6 +166,7 @@ impl Engine {
         )?;
         response.input_tokens = input_tokens;
         response.input_positions = input_positions;
+        response.prefill_elapsed = prefill_elapsed;
         response.elapsed = started_at.elapsed();
         Ok(response)
     }
@@ -213,6 +233,7 @@ fn generate_response(
     let mut sampler = LlamaSampler::greedy();
     let mut output = Vec::new();
     let mut generated_tokens = 0;
+    let started_at = Instant::now();
 
     for _ in 0..max_tokens {
         let token = sampler.sample(ctx, -1);
@@ -235,6 +256,8 @@ fn generate_response(
         input_tokens: 0,
         input_positions: 0,
         generated_tokens,
+        prefill_elapsed: Duration::ZERO,
+        decode_elapsed: started_at.elapsed(),
         elapsed: Duration::ZERO,
     })
 }
