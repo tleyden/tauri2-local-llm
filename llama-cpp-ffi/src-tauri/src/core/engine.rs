@@ -33,6 +33,8 @@ pub struct ModelPaths {
 #[derive(Debug, Clone)]
 pub struct PromptResponse {
     pub text: String,
+    pub input_tokens: usize,
+    pub input_positions: i32,
     pub generated_tokens: usize,
     pub elapsed: Duration,
 }
@@ -124,6 +126,8 @@ impl Engine {
             },
             &[&audio],
         )?;
+        let input_tokens = chunks.total_tokens();
+        let input_positions = chunks.total_positions();
 
         let mut ctx = self.new_context()?;
         let n_past = chunks.eval_chunks(
@@ -141,6 +145,8 @@ impl Engine {
             usize::try_from(n_past).unwrap_or(0),
             MAX_GENERATED_TOKENS,
         )?;
+        response.input_tokens = input_tokens;
+        response.input_positions = input_positions;
         response.elapsed = started_at.elapsed();
         Ok(response)
     }
@@ -226,6 +232,8 @@ fn generate_response(
 
     Ok(PromptResponse {
         text: String::from_utf8_lossy(&output).into_owned(),
+        input_tokens: 0,
+        input_positions: 0,
         generated_tokens,
         elapsed: Duration::ZERO,
     })

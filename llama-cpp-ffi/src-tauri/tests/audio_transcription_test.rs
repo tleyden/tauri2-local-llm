@@ -33,8 +33,18 @@ fn gemma_4_native_audio_returns_expected_process_management_answer(
         response.tokens_per_second() > 0.0,
         "expected audio prompt tokens/sec to be positive"
     );
+    assert!(
+        response.input_tokens > 0,
+        "expected audio prompt to report input tokens"
+    );
+    assert!(
+        response.input_positions > 0,
+        "expected audio prompt to report input positions"
+    );
     println!(
-        "audio benchmark: generated_tokens={} elapsed_seconds={:.2} tokens_per_second={:.2}",
+        "audio benchmark: input_tokens={} input_positions={} generated_tokens={} elapsed_seconds={:.2} tokens_per_second={:.2}",
+        response.input_tokens,
+        response.input_positions,
         response.generated_tokens,
         response.elapsed.as_secs_f64(),
         response.tokens_per_second()
