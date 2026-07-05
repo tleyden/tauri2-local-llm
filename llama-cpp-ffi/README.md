@@ -1,3 +1,7 @@
+<p align="center">
+  <a href="https://deepwiki.com/tleyden/tauri2-local-llm"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
+</p>
+
 # How to run
 
 ```
