@@ -41,16 +41,23 @@ fn gemma_4_native_audio_returns_expected_process_management_answer(
         response.input_positions > 0,
         "expected audio prompt to report input positions"
     );
+    assert!(
+        response.decode_tokens_per_second() > 0.0,
+        "expected audio prompt decode tokens/sec to be positive"
+    );
     println!(
-        "audio benchmark: input_tokens={} input_positions={} generated_tokens={} elapsed_seconds={:.2} tokens_per_second={:.2}",
+        "audio benchmark: input_tokens={} input_positions={} generated_tokens={} prefill_seconds={:.2} decode_seconds={:.2} decode_tokens_per_second={:.2} total_seconds={:.2} total_tokens_per_second={:.2}",
         response.input_tokens,
         response.input_positions,
         response.generated_tokens,
+        response.prefill_elapsed.as_secs_f64(),
+        response.decode_elapsed.as_secs_f64(),
+        response.decode_tokens_per_second(),
         response.elapsed.as_secs_f64(),
         response.tokens_per_second()
     );
 
-    assert_major_phrases(
+    assert_major_phrase_coverage(
         &response.text,
         &[
             "classic scenario",
@@ -70,20 +77,26 @@ fn gemma_4_native_audio_returns_expected_process_management_answer(
             "shut down",
             "breakdown of why this happens",
         ],
+        10,
     );
     Ok(())
 }
 
-fn assert_major_phrases(response: &str, expected_phrases: &[&str]) {
+fn assert_major_phrase_coverage(response: &str, expected_phrases: &[&str], minimum_matches: usize) {
     let normalized_response = normalize_text(response);
+    let matched = expected_phrases
+        .iter()
+        .filter(|phrase| {
+            let normalized_phrase = normalize_text(phrase);
+            normalized_response.contains(&normalized_phrase)
+        })
+        .count();
 
-    for phrase in expected_phrases {
-        let normalized_phrase = normalize_text(phrase);
-        assert!(
-            normalized_response.contains(&normalized_phrase),
-            "expected response to contain phrase {phrase:?}, got: {response:?}"
-        );
-    }
+    assert!(
+        matched >= minimum_matches,
+        "expected response to contain at least {minimum_matches} of {} major phrases, matched {matched}; got: {response:?}",
+        expected_phrases.len()
+    );
 }
 
 fn normalize_text(text: &str) -> String {

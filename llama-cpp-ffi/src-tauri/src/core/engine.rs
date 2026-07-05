@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
-use llama_cpp_2::context::params::LlamaContextParams;
+use llama_cpp_2::context::params::{KvCacheType, LlamaContextParams};
 use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::llama_batch::LlamaBatch;
 use llama_cpp_2::model::params::LlamaModelParams;
@@ -14,6 +14,7 @@ use llama_cpp_2::mtmd::{
     mtmd_default_marker, MtmdBitmap, MtmdContext, MtmdContextParams, MtmdInputText,
 };
 use llama_cpp_2::sampling::LlamaSampler;
+use llama_cpp_sys_2::LLAMA_FLASH_ATTN_TYPE_ENABLED;
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -21,6 +22,7 @@ const MODEL_DIR_NAME: &str = "gemma-4-12b-it-Q5_K_S";
 const MAX_GENERATED_TOKENS: usize = 96;
 const CONTEXT_SIZE: u32 = 8192;
 const BATCH_SIZE: u32 = 1024;
+const KV_CACHE_ENV: &str = "LLAMA_CPP_FFI_KV_CACHE";
 
 static BACKEND: OnceLock<LlamaBackend> = OnceLock::new();
 
@@ -36,12 +38,18 @@ pub struct PromptResponse {
     pub input_tokens: usize,
     pub input_positions: i32,
     pub generated_tokens: usize,
+    pub prefill_elapsed: Duration,
+    pub decode_elapsed: Duration,
     pub elapsed: Duration,
 }
 
 impl PromptResponse {
     pub fn tokens_per_second(&self) -> f64 {
         self.generated_tokens as f64 / self.elapsed.as_secs_f64()
+    }
+
+    pub fn decode_tokens_per_second(&self) -> f64 {
+        self.generated_tokens as f64 / self.decode_elapsed.as_secs_f64()
     }
 }
 
@@ -93,13 +101,25 @@ impl Engine {
     }
 
     pub fn prompt_text(&mut self, prompt: &str) -> Result<String> {
+        Ok(self.prompt_text_with_stats(prompt)?.text)
+    }
+
+    pub fn prompt_text_with_stats(&mut self, prompt: &str) -> Result<PromptResponse> {
+        let started_at = Instant::now();
         let prompt = self.chat_prompt(prompt)?;
         let tokens = self.model.str_to_token(&prompt, AddBos::Always)?;
         let mut ctx = self.new_context()?;
         let mut batch = LlamaBatch::get_one(&tokens)?;
         ctx.decode(&mut batch)?;
+        let prefill_elapsed = started_at.elapsed();
 
-        Ok(generate_response(&self.model, &mut ctx, tokens.len(), MAX_GENERATED_TOKENS)?.text)
+        let mut response =
+            generate_response(&self.model, &mut ctx, tokens.len(), MAX_GENERATED_TOKENS)?;
+        response.input_tokens = tokens.len();
+        response.input_positions = i32::try_from(tokens.len())?;
+        response.prefill_elapsed = prefill_elapsed;
+        response.elapsed = started_at.elapsed();
+        Ok(response)
     }
 
     pub fn prompt_audio(&mut self, wav_path: impl AsRef<Path>, prompt: &str) -> Result<String> {
@@ -138,6 +158,7 @@ impl Engine {
             i32::try_from(BATCH_SIZE).expect("batch size fits in i32"),
             true,
         )?;
+        let prefill_elapsed = started_at.elapsed();
 
         let mut response = generate_response(
             &self.model,
@@ -147,6 +168,7 @@ impl Engine {
         )?;
         response.input_tokens = input_tokens;
         response.input_positions = input_positions;
+        response.prefill_elapsed = prefill_elapsed;
         response.elapsed = started_at.elapsed();
         Ok(response)
     }
@@ -158,14 +180,55 @@ impl Engine {
     }
 
     fn new_context(&self) -> Result<llama_cpp_2::context::LlamaContext<'_>> {
-        let params = LlamaContextParams::default()
+        let params = Self::context_params()?;
+
+        Ok(self.model.new_context(self.backend, params)?)
+    }
+
+    fn context_params() -> Result<LlamaContextParams> {
+        Ok(Self::context_params_with_kv_cache_type(
+            Self::kv_cache_type_from_env()?,
+        ))
+    }
+
+    fn context_params_with_kv_cache_type(kv_cache_type: KvCacheType) -> LlamaContextParams {
+        LlamaContextParams::default()
+            .with_flash_attention_policy(LLAMA_FLASH_ATTN_TYPE_ENABLED)
+            .with_type_k(kv_cache_type)
+            .with_type_v(kv_cache_type)
             .with_n_ctx(NonZeroU32::new(CONTEXT_SIZE))
             .with_n_batch(BATCH_SIZE)
             .with_n_ubatch(BATCH_SIZE)
             .with_n_threads(default_thread_count())
-            .with_n_threads_batch(default_thread_count());
+            .with_n_threads_batch(default_thread_count())
+    }
 
-        Ok(self.model.new_context(self.backend, params)?)
+    fn kv_cache_type_from_env() -> Result<KvCacheType> {
+        match std::env::var(KV_CACHE_ENV) {
+            Ok(value) => Self::kv_cache_type_from_env_value(Some(&value)),
+            Err(std::env::VarError::NotPresent) => Self::kv_cache_type_from_env_value(None),
+            Err(err) => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("failed to read {KV_CACHE_ENV}: {err}"),
+            )
+            .into()),
+        }
+    }
+
+    fn kv_cache_type_from_env_value(value: Option<&str>) -> Result<KvCacheType> {
+        let Some(value) = value else {
+            return Ok(KvCacheType::Q8_0);
+        };
+
+        match value.trim().to_ascii_lowercase().as_str() {
+            "f16" => Ok(KvCacheType::F16),
+            "q8_0" => Ok(KvCacheType::Q8_0),
+            _ => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("invalid {KV_CACHE_ENV}={value:?}; expected \"f16\" or \"q8_0\""),
+            )
+            .into()),
+        }
     }
 }
 
@@ -213,6 +276,7 @@ fn generate_response(
     let mut sampler = LlamaSampler::greedy();
     let mut output = Vec::new();
     let mut generated_tokens = 0;
+    let started_at = Instant::now();
 
     for _ in 0..max_tokens {
         let token = sampler.sample(ctx, -1);
@@ -235,6 +299,8 @@ fn generate_response(
         input_tokens: 0,
         input_positions: 0,
         generated_tokens,
+        prefill_elapsed: Duration::ZERO,
+        decode_elapsed: started_at.elapsed(),
         elapsed: Duration::ZERO,
     })
 }
@@ -322,4 +388,69 @@ fn default_thread_count() -> i32 {
         .map(usize::from)
         .unwrap_or(4)
         .min(i32::MAX as usize) as i32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn context_params_enable_flash_attention() {
+        let params = Engine::context_params_with_kv_cache_type(KvCacheType::Q8_0);
+
+        assert_eq!(
+            params.flash_attention_policy(),
+            LLAMA_FLASH_ATTN_TYPE_ENABLED
+        );
+    }
+
+    #[test]
+    fn context_params_quantize_kv_cache() {
+        let params = Engine::context_params_with_kv_cache_type(KvCacheType::Q8_0);
+
+        assert_eq!(params.type_k(), KvCacheType::Q8_0);
+        assert_eq!(params.type_v(), KvCacheType::Q8_0);
+    }
+
+    #[test]
+    fn context_params_can_use_f16_kv_cache() {
+        let params = Engine::context_params_with_kv_cache_type(KvCacheType::F16);
+
+        assert_eq!(params.type_k(), KvCacheType::F16);
+        assert_eq!(params.type_v(), KvCacheType::F16);
+    }
+
+    #[test]
+    fn kv_cache_type_defaults_to_q8_0() {
+        assert_eq!(
+            Engine::kv_cache_type_from_env_value(None).unwrap(),
+            KvCacheType::Q8_0
+        );
+    }
+
+    #[test]
+    fn kv_cache_type_accepts_f16_env_value() {
+        assert_eq!(
+            Engine::kv_cache_type_from_env_value(Some("f16")).unwrap(),
+            KvCacheType::F16
+        );
+    }
+
+    #[test]
+    fn kv_cache_type_accepts_q8_0_env_value() {
+        assert_eq!(
+            Engine::kv_cache_type_from_env_value(Some("q8_0")).unwrap(),
+            KvCacheType::Q8_0
+        );
+    }
+
+    #[test]
+    fn kv_cache_type_rejects_unknown_env_value() {
+        let err = Engine::kv_cache_type_from_env_value(Some("q4_k")).unwrap_err();
+        let message = err.to_string();
+
+        assert!(message.contains("LLAMA_CPP_FFI_KV_CACHE"));
+        assert!(message.contains("f16"));
+        assert!(message.contains("q8_0"));
+    }
 }
