@@ -1,3 +1,7 @@
+<p align="center">
+  <a href="https://deepwiki.com/tleyden/tauri2-local-llm"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
+</p>
+
 This is a prototyping repo to compare the various ways to use local models like Gemma4 in a Tauri2 desktop app, since I am planning to integrate this into the language learning app I'm building: [Fluensy](https://fluensy.app)
 
 Right now I mainly need it on macOS, so there is a heavy bias towards that platform.  But ideally I want this to work on all platforms.
@@ -43,7 +47,9 @@ excluding model load. Current test audio is
 
 1. Avoiding orphaned processes
 
-### Option 3: llama.cpp native integration via FFI
+### Option 3: llama.cpp native integration via FFI - Implemented
+
+Status: implemented in [`llama-cpp-ffi`](llama-cpp-ffi/README.md).
 
 #### Strengths
 
